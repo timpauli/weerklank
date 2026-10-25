@@ -63,6 +63,34 @@ Audio devices are set by their index from `--list-devices`. Pick devices listed 
 DirectSound: they convert sample rates, while WASAPI devices only open at their native rate.
 Windows can renumber devices after a reboot; the startup log shows which device was opened.
 
+### Changing parameters while running (OSC)
+
+The bot listens for [OSC](https://opensoundcontrol.stanford.edu/) messages over UDP on `osc.host` /
+`osc.port` (default `127.0.0.1:9000`, i.e. from this computer only; `port: null` turns it off).
+A message is `/<stage>/<parameter> <value>`; the change applies from the next sentence on.
+
+| Address | Value | Default |
+|---|---|---|
+| `/tts/speed` | speaking rate factor > 0 (>1 faster); no value = the model decides | `null` |
+| `/tts/guidance_scale` | ≥ 0: how strongly the speech follows the text and the cloned voice; 0 = off | `2.0` |
+| `/tts/t_shift` | > 0: diffusion time-step shift; smaller = more steps on the noisy start | `0.1` |
+| `/tts/denoise` | true/false or 1/0: clean speech even if the reference recording is noisy | `true` |
+
+The startup log lists the addresses, and each change is logged (`OSC /tts/speed = 1.2`); a
+value out of range or an unknown address is logged as a warning and ignored. Bots running at
+the same time each need their own port (e.g. `osc: {port: 9001}` in a preset). From Python:
+
+```python
+from pythonosc.udp_client import SimpleUDPClient
+
+SimpleUDPClient("127.0.0.1", 9000).send_message("/tts/speed", 1.2)
+```
+
+To make a parameter of another stage changeable, give its processor a `controls()` method (see
+`echo_lab/control.py`). For a Pipecat service, `settings_controls()` builds the controls from
+fields of its settings, applied with the service's settings-update frame (`TTSUpdateSettingsFrame`,
+`STTUpdateSettingsFrame`, ...). Any other processor can apply a value with a frame of its own.
+
 ### What the parameters do
 
 | Section | Parameter | Meaning |
@@ -116,6 +144,7 @@ presets/         partial configs for -p
 echo_lab/
   cli.py         command line, log format, GPU selection
   config.py      loading, presets, --set, !path, validation
+  control.py     OSC server and the Control interface for changes while running
   registry.py    the backends of each stage
   pipeline.py    microphone and speakers (or a WAV file) around the four stages
   audio_devices.py  --list-devices and device names for the log
@@ -146,6 +175,7 @@ uv run python -m unittest discover -s tests   # no models or audio devices neede
 uv run ruff format; uv run ruff check         # formatting and lint
 ```
 
-The unit tests cover both segmenters, the translation stage (with a stand-in model), the
-config handling, the command line and log format, the microphone mute and the output recorder.
-Everything with models runs live: speak into the microphone and watch the log.
+The unit tests cover both segmenters, the translation stage and the TTS controls (with stand-in
+models), the config handling, the command line and log format, the OSC server, the microphone
+mute and the output recorder. Everything with models runs live: speak into the microphone and
+watch the log.

@@ -27,8 +27,7 @@ class LocalTTSService(TTSService):
     def __init__(
         self,
         *,
-        language: str,
-        model: str,
+        settings: TTSSettings,
         device: str,
         stop_frame_timeout_s: float = 60.0,
         **kwargs,
@@ -36,8 +35,10 @@ class LocalTTSService(TTSService):
         """Initialize the service.
 
         Args:
-            language: Language to speak, e.g. ``"pt"``.
-            model: Model name, reported in logs.
+            settings: The service's settings, with every field set: at least
+                ``model``, ``voice`` and ``language`` (e.g. ``"pt"``). A subclass
+                may pass a ``TTSSettings`` subclass with more fields; those can
+                then be changed while running with ``TTSUpdateSettingsFrame``.
             device: Torch device the model runs on, e.g. ``"cuda:0"``.
             stop_frame_timeout_s: How long the base class waits for a sentence's
                 audio before it considers the utterance over. Pipecat's default
@@ -50,7 +51,7 @@ class LocalTTSService(TTSService):
             push_start_frame=True,
             push_stop_frames=True,
             stop_frame_timeout_s=stop_frame_timeout_s,
-            settings=TTSSettings(model=model, voice=None, language=language),
+            settings=settings,
             **kwargs,
         )
         self._device = device
@@ -64,6 +65,9 @@ class LocalTTSService(TTSService):
     @abstractmethod
     def _synthesize(self, text: str) -> tuple[np.ndarray, int]:
         """Synthesize ``text`` (runs in a worker thread).
+
+        Read changeable parameters from ``self._settings`` here, once per call,
+        so a change applies from the next sentence on.
 
         Returns:
             Mono float samples in [-1, 1] and their sample rate.

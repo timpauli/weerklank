@@ -1,11 +1,16 @@
 """k2-fsa OmniVoice TTS: zero-shot voice cloning in 600+ languages."""
 
+from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
 import torch
 from loguru import logger
+from pipecat.frames.frames import TTSUpdateSettingsFrame
+from pipecat.services.settings import TTSSettings
+from pipecat.utils.types import NOT_GIVEN, NotGiven
 
+from echo_lab.control import Control, flag, number, optional, settings_controls
 from echo_lab.registry import StageContext
 from echo_lab.tts.base import LocalTTSService
 
@@ -13,8 +18,30 @@ from echo_lab.tts.base import LocalTTSService
 WARMUP_TEXT = {"nl": "Hallo.", "pt": "Olá.", "de": "Hallo."}
 
 
+@dataclass
+class OmniVoiceSettings(TTSSettings):
+    """OmniVoice's settings. The generation parameters can change while running.
+
+    Parameters:
+        speed: Speaking rate factor (>1 faster); None lets the model decide.
+        guidance_scale: How strongly the speech follows the text and the cloned
+            voice (classifier-free guidance); 0 turns guidance off.
+        t_shift: Shifts the diffusion time steps; smaller values spend more of
+            the steps on the noisy start.
+        denoise: Asks for clean speech even if the reference recording is noisy
+            (only used when cloning a voice).
+    """
+
+    speed: float | None | NotGiven = field(default_factory=lambda: NOT_GIVEN)
+    guidance_scale: float | NotGiven = field(default_factory=lambda: NOT_GIVEN)
+    t_shift: float | NotGiven = field(default_factory=lambda: NOT_GIVEN)
+    denoise: bool | NotGiven = field(default_factory=lambda: NOT_GIVEN)
+
+
 class OmniVoiceTTSService(LocalTTSService):
     """Speaks with OmniVoice, cloning the voice of a reference recording."""
+
+    _settings: OmniVoiceSettings
 
     def __init__(
         self,
@@ -27,6 +54,9 @@ class OmniVoiceTTSService(LocalTTSService):
         dtype: str = "float16",
         num_step: int = 32,
         speed: float | None = None,
+        guidance_scale: float = 2.0,
+        t_shift: float = 0.1,
+        denoise: bool = True,
         instruct: str | None = None,
         generate_kwargs: dict[str, Any] | None = None,
         **kwargs,
@@ -44,19 +74,43 @@ class OmniVoiceTTSService(LocalTTSService):
             device: Torch device, e.g. ``"cuda:0"``.
             dtype: ``"float16"``, ``"bfloat16"`` or ``"float32"``.
             num_step: Diffusion decoding steps; fewer is faster, more is cleaner.
-            speed: Speaking rate factor (>1 faster); None lets the model decide.
+            speed, guidance_scale, t_shift, denoise: Generation parameters, see
+                :class:`OmniVoiceSettings`; changeable while running.
             instruct: Voice description used when there is no ``ref_audio``,
                 e.g. ``"female, low pitch"``.
-            generate_kwargs: Extra arguments for ``OmniVoice.generate`` (e.g.
-                ``guidance_scale``, ``t_shift``).
+            generate_kwargs: Further arguments for ``OmniVoice.generate``.
             **kwargs: Additional arguments passed to TTSService.
         """
-        super().__init__(language=language, model=model, device=device, **kwargs)
+        super().__init__(
+            settings=OmniVoiceSettings(
+                model=model,
+                voice=None,
+                language=language,
+                speed=speed,
+                guidance_scale=guidance_scale,
+                t_shift=t_shift,
+                denoise=denoise,
+            ),
+            device=device,
+            **kwargs,
+        )
         self._num_step = num_step
-        self._speed = speed
         self._instruct = instruct
         self._generate_kwargs = dict(generate_kwargs or {})
         self._load(model, getattr(torch, dtype), ref_audio, ref_text)
+
+    def controls(self) -> list[Control]:
+        """The parameters that OSC can change while running (``/tts/<name>``)."""
+        return settings_controls(
+            self,
+            TTSUpdateSettingsFrame,
+            {
+                "speed": optional(number(above=0)),
+                "guidance_scale": number(at_least=0),
+                "t_shift": number(above=0),
+                "denoise": flag,
+            },
+        )
 
     def _load(self, model: str, dtype: torch.dtype, ref_audio: str | None, ref_text: str | None):
         from omnivoice import OmniVoice
@@ -86,14 +140,18 @@ class OmniVoiceTTSService(LocalTTSService):
             torch.cuda.empty_cache()
 
     def _synthesize(self, text: str) -> tuple[np.ndarray, int]:
+        settings = self._settings
         kwargs: dict[str, Any] = {
             "text": text,
             "language": self.language,
             "num_step": self._num_step,
             **self._generate_kwargs,
+            "guidance_scale": settings.guidance_scale,
+            "t_shift": settings.t_shift,
+            "denoise": settings.denoise,
         }
-        if self._speed is not None:
-            kwargs["speed"] = self._speed
+        if settings.speed is not None:
+            kwargs["speed"] = settings.speed
         if self._voice_clone_prompt is not None:
             kwargs["voice_clone_prompt"] = self._voice_clone_prompt
         elif self._instruct:
@@ -106,7 +164,8 @@ def create(ctx: StageContext):
     """Build the OmniVoice service.
 
     Shared options (``tts``): ref_audio, ref_text.
-    Options (``tts.omnivoice``): model, device, dtype, num_step, speed, instruct, generate_kwargs.
+    Options (``tts.omnivoice``): model, device, dtype, num_step, speed, guidance_scale,
+    t_shift, denoise, instruct, generate_kwargs.
     """
     return OmniVoiceTTSService(
         language=ctx.output_language,

@@ -18,6 +18,7 @@ from pipecat.workers.runner import WorkerRunner
 
 from echo_lab.audio_devices import describe_device
 from echo_lab.config import get_value
+from echo_lab.control import OSCServer
 from echo_lab.registry import STAGES, create_stage
 
 # Silero VAD and Parakeet both work on 16 kHz audio; OmniVoice speaks at 24 kHz.
@@ -93,14 +94,14 @@ def create_output_recorder(path: str | Path) -> AudioBufferProcessor:
     return recorder
 
 
-def build_stages(config: dict[str, Any]) -> list[FrameProcessor]:
+def build_stages(config: dict[str, Any]) -> dict[str, list[FrameProcessor]]:
     """Build the VAD, STT, LLM (translation) and TTS processors, loading their models."""
-    processors: list[FrameProcessor] = []
+    stages: dict[str, list[FrameProcessor]] = {}
     for stage in STAGES:
         backend = get_value(config, f"{stage}.backend")
         logger.info(f"Setting up {stage}: {backend}")
-        processors += create_stage(config, stage)
-    return processors
+        stages[stage] = create_stage(config, stage)
+    return stages
 
 
 async def run_pipeline(config: dict[str, Any], *, output_file: str | Path | None = None) -> None:
@@ -127,36 +128,45 @@ async def run_pipeline(config: dict[str, Any], *, output_file: str | Path | None
         )
     )
 
-    stages = build_stages(config)
+    osc = OSCServer(get_value(config, "osc.host", "127.0.0.1"), get_value(config, "osc.port"))
+    # The port is bound before the models load, so a port that is in use fails at once.
+    async with osc:
+        stages = build_stages(config)
+        for stage, stage_processors in stages.items():
+            osc.add(stage, stage_processors)
 
-    # Microphone -> (mute) -> VAD -> STT -> translation -> TTS -> speakers or WAV file.
-    processors: list[FrameProcessor] = [transport.input()]
-    if not output_file and get_value(config, "audio.mute_input_while_speaking", False):
-        processors.append(InputMuteWhileSpeaking())
-    processors += stages
-    processors.append(create_output_recorder(output_file) if output_file else transport.output())
-
-    worker = PipelineWorker(
-        Pipeline(processors),
-        params=PipelineParams(
-            audio_in_sample_rate=INPUT_SAMPLE_RATE,
-            audio_out_sample_rate=OUTPUT_SAMPLE_RATE,
-        ),
-        # An interpreter waits for speech as long as it takes.
-        idle_timeout_secs=None,
-        enable_rtvi=False,
-        processor_unusable_policy=ProcessorUnusablePolicy.END,
-    )
-
-    @worker.event_handler("on_pipeline_started")
-    async def on_pipeline_started(worker, frame):
-        logger.info(
-            f"Translating {get_value(config, 'llm.input_language')} -> "
-            f"{get_value(config, 'llm.output_language')}. Press Ctrl+C to stop."
+        # Microphone -> (mute) -> VAD -> STT -> translation -> TTS -> speakers or WAV file.
+        processors: list[FrameProcessor] = [transport.input()]
+        if not output_file and get_value(config, "audio.mute_input_while_speaking", False):
+            processors.append(InputMuteWhileSpeaking())
+        for stage_processors in stages.values():
+            processors += stage_processors
+        processors.append(
+            create_output_recorder(output_file) if output_file else transport.output()
         )
 
-    # Pipecat's SIGINT handling needs loop.add_signal_handler, which Windows
-    # lacks; there asyncio.run() turns Ctrl+C into a cancellation instead.
-    runner = WorkerRunner(handle_sigint=sys.platform != "win32")
-    await runner.add_workers(worker)
-    await runner.run()
+        worker = PipelineWorker(
+            Pipeline(processors),
+            params=PipelineParams(
+                audio_in_sample_rate=INPUT_SAMPLE_RATE,
+                audio_out_sample_rate=OUTPUT_SAMPLE_RATE,
+            ),
+            # An interpreter waits for speech as long as it takes.
+            idle_timeout_secs=None,
+            enable_rtvi=False,
+            processor_unusable_policy=ProcessorUnusablePolicy.END,
+        )
+
+        @worker.event_handler("on_pipeline_started")
+        async def on_pipeline_started(worker, frame):
+            osc.attach(worker)
+            logger.info(
+                f"Translating {get_value(config, 'llm.input_language')} -> "
+                f"{get_value(config, 'llm.output_language')}. Press Ctrl+C to stop."
+            )
+
+        # Pipecat's SIGINT handling needs loop.add_signal_handler, which Windows
+        # lacks; there asyncio.run() turns Ctrl+C into a cancellation instead.
+        runner = WorkerRunner(handle_sigint=sys.platform != "win32")
+        await runner.add_workers(worker)
+        await runner.run()

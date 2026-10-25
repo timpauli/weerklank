@@ -23,6 +23,8 @@ dependencies = [
     "ctranslate2>=4.6,<5",
     # TTS
     "omnivoice==0.2.1",
+    # Runtime control over OSC
+    "python-osc>=1.10,<2",
 ]
 
 [project.scripts]

@@ -2,6 +2,8 @@
 audio:
   input_device: 6
   output_device: 22
+osc:
+  port: 9003
 llm:
   backend: m2m100_ct2
 tts:
