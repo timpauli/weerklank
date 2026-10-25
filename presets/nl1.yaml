@@ -6,6 +6,10 @@ osc:
   port: 9001
 llm:
   backend: m2m100_ct2
+  input_language: en
+  output_language: nl
 tts:
+  ref_audio: !path ../recordings/tims_test_recording.wav
+  ref_text: "This is an example of my voice speaking English because I cannot speak Dutch or Portuguese. I am sorry, so, so sorry."
   omnivoice:
     num_step: 16

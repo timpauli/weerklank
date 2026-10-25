@@ -16,6 +16,7 @@ models/
 
 # Recordings made with --output-file in the project folder
 /*.wav
+recordings/
 
 # Editors and OS
 .vscode/
