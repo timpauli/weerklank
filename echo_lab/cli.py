@@ -19,8 +19,8 @@ from echo_lab.config import (
 # Colors (Loguru markup) for the pipeline's own lines, chosen by how the message starts.
 MESSAGE_COLORS = {
     "Heard": "red",
-    "Translated": "green",
-    "Speaking": "yellow",
+    "Translated": "yellow",
+    "Speaking": "green",
 }
 
 

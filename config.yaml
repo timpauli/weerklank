@@ -68,13 +68,13 @@ llm:
     device: cuda:0
     compute_type: float16   # int8_float16 = smaller, slightly faster
     beam_size: 4            # 1 = greedy, fastest
-    max_new_tokens: 512
+    max_new_tokens: 256
   translategemma_ct2:
     model: google/translategemma-4b-it                 # prompt template, tokenizer, weights to convert
     model_dir: !path models/translategemma-4b-it-ct2-bfloat16  # converted on first run if missing (~7 GB)
     device: cuda:0
     compute_type: bfloat16  # Gemma can overflow in float16; int8 was no faster
-    max_new_tokens: 512
+    max_new_tokens: 256
 
 tts:
   backend: omnivoice
@@ -88,7 +88,7 @@ tts:
     dtype: float16
     # Diffusion steps: fewer = faster, more = cleaner. Try 16 (about twice as
     # fast) or 24; same as `--set tts.omnivoice.num_step=16` for a single run.
-    num_step: 32
+    num_step: 8
     # Also changeable while running, over OSC (/tts/<name>):
     speed: null             # speaking rate factor (>1 faster); null = model decides
     guidance_scale: 2.0     # how strongly the speech follows the text and voice; 0 = off
