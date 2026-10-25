@@ -1,0 +1,89 @@
+# echo-lab: realtime speech-to-speech translation
+#
+#   audio in -> vad -> stt -> llm (translation) -> tts -> audio out
+#
+# This base config holds every parameter. Each stage names its `backend`; the
+# section with that backend's name holds its options.
+#
+# Change values for a run without editing this file:
+#   uv run bot.py -p nl1                            # a preset from presets/
+#   uv run bot.py --set tts.omnivoice.num_step=16   # a single value
+#
+# Paths tagged `!path` are relative to the file they're in (here: this file).
+
+# The only GPU used, by nvidia-smi index (0 = RTX 3090 Ti); it is cuda:0 below.
+# null = all GPUs.
+gpu: 0
+
+audio:
+  # PyAudio device indexes from `uv run bot.py --list-devices` (pick MME or
+  # DirectSound entries); null = system default.
+  input_device: null
+  output_device: null
+  # Silence the microphone while the translation plays, so the speakers aren't
+  # picked up and translated again. Not needed with headphones.
+  mute_input_while_speaking: false
+
+vad:
+  # silero_smart_turn  at each short pause, Smart Turn judges whether the sentence
+  #                    is finished; finished sentences end their segment at once
+  # fixed_interval     ignore pauses, cut the audio about every interval_secs
+  backend: silero_smart_turn
+  silero_smart_turn:
+    stop_secs: 0.1       # pause after which Smart Turn is asked whether the sentence is done
+    start_secs: 0.1      # speech needed before a segment starts
+    confidence: 0.9      # minimum Silero speech probability
+    min_volume: 0.6      # minimum (smoothed) volume for audio to count as speech
+    max_pause_secs: 2.0  # end the segment after this much silence, even mid-sentence
+    cpu_threads: 6       # CPU threads for the Smart Turn model
+  fixed_interval:
+    interval_secs: 1.0   # target segment length
+    search_secs: 0.5     # window around the target where the cut goes at the quietest
+                         # point; 0 = cut exactly every interval_secs
+
+stt:
+  # Parakeet TDT v3 recognizes the spoken language by itself (but doesn't report
+  # it), so the language to translate from is set under llm.
+  backend: parakeet_tdt
+  parakeet_tdt:
+    model: nvidia/parakeet-tdt-0.6b-v3
+    device: cuda:0
+
+llm:
+  # m2m100_ct2          facebook/m2m100_418M, run with CTranslate2: fast
+  # translategemma_ct2  google/translategemma-4b-it, run with CTranslate2: better
+  #                     translations; gated on Hugging Face (accept the license,
+  #                     then `uv run hf auth login`)
+  backend: m2m100_ct2
+  input_language: de    # the speaker's language: nl, pt, de, ...
+  output_language: nl   # the language to translate into; the TTS speaks it
+  m2m100_ct2:
+    model: facebook/m2m100_418M  # tokenizer, and the weights to convert
+    # Converted on the first run if missing.
+    model_dir: !path models/m2m100_418M-ct2-float16
+    device: cuda:0
+    compute_type: float16  # int8_float16 = smaller, slightly faster
+    beam_size: 4           # 1 = greedy, fastest
+    max_new_tokens: 512
+  translategemma_ct2:
+    model: google/translategemma-4b-it  # prompt template, tokenizer, weights to convert
+    # Converted on the first run if missing (about 7 GB).
+    model_dir: !path models/translategemma-4b-it-ct2-bfloat16
+    device: cuda:0
+    compute_type: bfloat16  # Gemma can overflow in float16; int8 was no faster
+    max_new_tokens: 512
+
+tts:
+  backend: omnivoice
+  # Voice to clone: a clean recording of a few seconds (3-10 s works best) and
+  # its transcript. ref_audio: null = the model's own voice.
+  ref_audio: !path ../recordings/tims_test_recording.wav
+  ref_text: >-
+    This is an example of my voice speaking English because I cannot speak Dutch
+    or Portuguese. I am sorry, so, so sorry.
+  omnivoice:
+    model: k2-fsa/OmniVoice
+    device: cuda:0
+    dtype: float16
+    num_step: 32  # diffusion steps: fewer = faster, more = cleaner; 16 takes about half as long
+    speed: null   # speaking rate factor (>1 faster); null = the model decides

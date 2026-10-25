@@ -1,0 +1,9 @@
+# Setup nl2: only the values that differ from config.yaml.
+audio:
+  input_device: 5
+  output_device: 13
+llm:
+  backend: m2m100_ct2
+tts:
+  omnivoice:
+    num_step: 16

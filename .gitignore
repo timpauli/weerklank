@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# uv environment and build output (uv.lock and .python-version stay tracked)
+.venv/
+build/
+dist/
+*.egg-info/
+
+# Tools
+.ruff_cache/
+
+# Models converted to CTranslate2 on the first run (several GB, recreated when missing)
+models/
+
+# Recordings made with --output-file in the project folder
+/*.wav
+
+# Editors and OS
+.vscode/
+.idea/
+Thumbs.db
+Desktop.ini
+.DS_Store
