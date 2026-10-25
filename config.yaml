@@ -20,6 +20,14 @@ audio:
   # picked up and translated again. Not needed with headphones.
   mute_input_while_speaking: false
 
+osc:
+  # Change parameters while running by sending OSC messages over UDP to this
+  # address, e.g. `/tts/speed 1.2`; see the README for the addresses. 127.0.0.1
+  # accepts messages from this computer only, 0.0.0.0 from the network.
+  # port: null = off. Bots running at the same time need different ports.
+  host: 127.0.0.1
+  port: 9000
+
 vad:
   # silero_smart_turn: at each short pause, Smart Turn judges whether the sentence
   #                    is finished; finished sentences end their segment at once
@@ -81,5 +89,8 @@ tts:
     # Diffusion steps: fewer = faster, more = cleaner. Try 16 (about twice as
     # fast) or 24; same as `--set tts.omnivoice.num_step=16` for a single run.
     num_step: 32
+    # Also changeable while running, over OSC (/tts/<name>):
     speed: null             # speaking rate factor (>1 faster); null = model decides
-  speed: null             # speaking rate factor (>1 faster); null = model decides
+    guidance_scale: 2.0     # how strongly the speech follows the text and voice; 0 = off
+    t_shift: 0.1            # diffusion time-step shift; smaller = more steps on the noisy start
+    denoise: true           # clean speech even if the reference recording is noisy
